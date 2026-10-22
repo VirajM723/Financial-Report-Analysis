@@ -45,6 +45,7 @@ score = 3 × neutral + 5 × positive + 1 × negative
 | `streamlit_app.py` | The web app (enter a ticker, click **Analyze**) |
 | `analysis_notebook.ipynb` | Step-by-step walkthrough of the same analysis (with results for GOOG) |
 | `sec_download.py` | Downloads the filings from SEC EDGAR and loads them |
+| `style.css` | The app's look (colours, type, layout) |
 | `requirements.txt` | Python packages to install |
 | `.streamlit/config.toml` | Streamlit settings |
 
@@ -61,6 +62,7 @@ streamlit run streamlit_app.py
 
 Then open http://localhost:8501, enter a ticker (e.g. `GOOG`) and a start year, and click **Analyze**.
 A run for GOOG from 2019 takes about 1–2 minutes (the very first run also downloads the FinBERT model).
+Every result has its own link you can share, for example http://localhost:8501/?ticker=GOOG&from=2019.
 
 **Optional:** to show related news, get a free key from [NewsAPI](https://newsapi.org/) and set it before starting the app:
 

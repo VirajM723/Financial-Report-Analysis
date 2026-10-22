@@ -59,7 +59,7 @@ def download_filings(ticker, start_year):
 
     # Important: with an unknown ticker, edgar-crawler would download EVERY company's 10-K
     if not is_known_ticker(ticker):
-        return
+        raise ValueError(f"{ticker} is not in the SEC's list of company tickers")
 
     config = {
         "download_filings": {

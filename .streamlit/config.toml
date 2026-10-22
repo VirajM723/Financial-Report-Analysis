@@ -4,3 +4,20 @@ fileWatcherType = "none"
 
 [browser]
 gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
+
+# Colours and type: an ink-only "ledger" look; the only hue (blue) is on the data
+[theme]
+base = "light"
+font = "Geist:https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&display=swap, sans-serif"
+backgroundColor = "#f2f4f7"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#0a0a0a"
+primaryColor = "#141414"
+linkColor = "#0a0a0a"
+borderColor = "#d4d4d4"
+showWidgetBorder = true
+baseRadius = "6px"
+baseFontSize = 14
