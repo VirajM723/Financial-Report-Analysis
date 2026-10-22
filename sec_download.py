@@ -10,6 +10,9 @@ import subprocess
 import sys
 from datetime import datetime
 
+import requests
+
+USER_AGENT = "Student Project (student@example.com)"  # the SEC asks every request for a contact
 CRAWLER_DIR = "edgar-crawler"
 CRAWLER_URL = "https://github.com/nlpaueb/edgar-crawler.git"
 EXTRACTED_DIR = os.path.join(CRAWLER_DIR, "datasets", "EXTRACTED_FILINGS", "10-K")
@@ -33,6 +36,15 @@ def setup_crawler():
             f.write(code.replace(old, new))
 
 
+def is_known_ticker(ticker):
+    """Check the ticker against the SEC's official list of companies."""
+    response = requests.get(
+        "https://www.sec.gov/files/company_tickers.json", headers={"User-Agent": USER_AGENT}, timeout=30
+    )
+    response.raise_for_status()
+    return any(company["ticker"] == ticker for company in response.json().values())
+
+
 def download_filings(ticker, start_year):
     """Download the 10-K filings of one company and split them into sections."""
     setup_crawler()
@@ -45,6 +57,10 @@ def download_filings(ticker, start_year):
         elif os.path.exists(path):
             os.remove(path)
 
+    # Important: with an unknown ticker, edgar-crawler would download EVERY company's 10-K
+    if not is_known_ticker(ticker):
+        return
+
     config = {
         "download_filings": {
             "start_year": start_year,
@@ -52,7 +68,7 @@ def download_filings(ticker, start_year):
             "quarters": [1, 2, 3, 4],
             "filing_types": ["10-K"],
             "cik_tickers": [ticker],
-            "user_agent": "Student Project (student@example.com)",  # the SEC asks for a contact
+            "user_agent": USER_AGENT,
             "raw_filings_folder": "RAW_FILINGS",
             "indices_folder": "INDICES",
             "filings_metadata_file": "FILINGS_METADATA.csv",
