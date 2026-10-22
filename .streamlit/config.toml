@@ -1,0 +1,6 @@
+[server]
+# Stops Streamlit from scanning every installed transformers module (noisy errors)
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false

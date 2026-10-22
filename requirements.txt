@@ -1,0 +1,21 @@
+# CPU-only PyTorch (much smaller download; no GPU needed)
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# App + NLP
+streamlit
+transformers
+torch
+pandas
+numpy
+plotly
+matplotlib
+requests
+
+# Needed by edgar-crawler (downloads the 10-K filings)
+beautifulsoup4
+click
+cssutils
+lxml
+pathos
+tqdm
+urllib3
