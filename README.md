@@ -60,7 +60,7 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-Then open http://localhost:8501, enter a ticker (e.g. `GOOG`) and a start year, and click **Analyze**.
+Then open http://localhost:8501, enter a ticker (e.g. `GOOG`) and the first filing year, and click **Analyze**.
 A run for GOOG from 2019 takes about 1–2 minutes (the very first run also downloads the FinBERT model).
 Every result has its own link you can share, for example http://localhost:8501/?ticker=GOOG&from=2019.
 
@@ -94,4 +94,5 @@ The first start takes a few minutes while the packages and the FinBERT model dow
 
 - BERT reads at most 512 tokens, so only the **start of each section** is scored.
 - 10-K reports are written in a careful, neutral tone, so most scores stay close to 3.
+- Some companies (banks such as JPMorgan, for example) only point to a separate annual report in most sections ("see pages 46-160"), so those sections score as neutral and barely change.
 - Downloading filings for many years can take a few minutes.

@@ -20,7 +20,7 @@ import requests
 import streamlit as st
 from transformers import BertForSequenceClassification, BertTokenizer
 
-from sec_download import download_filings, load_filings
+from sec_download import UnknownTicker, download_filings
 
 # The sections of a 10-K report: item number and a short readable name
 SECTIONS = {
@@ -49,6 +49,7 @@ SECTIONS = {
     "item_16": ("16", "10-K summary"),
 }
 NEUTRAL = 3.0
+GRID_YEARS = 10  # the section grid shows the latest 10 years so it fits on screen
 
 
 # ---------- 1. Model ----------
@@ -78,8 +79,7 @@ def sentiment_score(text, tokenizer, model):
 @st.cache_data(show_spinner=False, ttl="1d")
 def get_filings(ticker, start_year):
     """Download and load the filings (cached, so repeating a search is instant)."""
-    download_filings(ticker, start_year)
-    return load_filings()
+    return download_filings(ticker, start_year)
 
 
 @st.cache_data(show_spinner=False, ttl="1d")
@@ -92,7 +92,8 @@ def score_filings(ticker, start_year, _filings, _tokenizer, _model):
             for key in SECTIONS
         }
     df = pd.DataFrame(scores)
-    return df[sorted(df.columns)].dropna(how="all")  # drop sections that are always empty
+    # Drop sections that are always empty, and years where nothing could be extracted
+    return df[sorted(df.columns)].dropna(how="all").dropna(axis=1, how="all")
 
 
 @st.cache_data(show_spinner=False, ttl="1h")
@@ -107,7 +108,8 @@ def fetch_news(query):
         timeout=10,
     )
     response.raise_for_status()
-    return response.json().get("articles", [])
+    articles = response.json().get("articles", [])
+    return [a for a in articles if a.get("url") and a.get("title") and a["title"] != "[Removed]"]
 
 
 # ---------- 3. Building blocks (HTML) ----------
@@ -154,9 +156,14 @@ def line_chart(years, values, width, max_labels):
     height, left, right, top, bottom = 220, 28, 48, 12, 28
     plot_w, plot_h = width - left - right, height - top - bottom
     n = len(years)
+    first, last = int(years[0]), int(years[-1])
+    span = last - first
+
+    def x_year(year):  # a real time axis: a missing year leaves a gap instead of squeezing the line
+        return left + (plot_w * (year - first) / span if span else plot_w / 2)
 
     def x(i):
-        return left + (plot_w * i / (n - 1) if n > 1 else plot_w / 2)
+        return x_year(int(years[i]))
 
     def y(v):
         return top + plot_h * (5 - v) / 4
@@ -170,9 +177,9 @@ def line_chart(years, values, width, max_labels):
     svg.append(f'<line x1="{left}" x2="{width - right}" y1="{y(NEUTRAL):.1f}" y2="{y(NEUTRAL):.1f}" '
                f'stroke="#8a8a8a" stroke-dasharray="3 3"/>')
 
-    step = math.ceil(n / max_labels)
-    for i in range(n - 1, -1, -step):  # x labels, always including the last year
-        svg.append(f'<text x="{x(i):.1f}" y="{height - 8}" text-anchor="middle">{years[i]}</text>')
+    step = math.ceil((span + 1) / max_labels)
+    for year in range(last, first - 1, -step):  # x labels on an even step, always including the last year
+        svg.append(f'<text x="{x_year(year):.1f}" y="{height - 8}" text-anchor="middle">{year}</text>')
 
     points = " ".join(f"{x(i):.1f},{y(v):.1f}" for i, v in enumerate(values))
     svg.append(f'<polyline points="{points}" fill="none" stroke="#1d5fbf" stroke-width="2" '
@@ -187,12 +194,13 @@ def line_chart(years, values, width, max_labels):
 
 
 def grid_table(df, keys):
-    years = list(df.columns)
+    """One row per section; the latest GRID_YEARS years as columns; the average covers every year."""
+    years = list(df.columns)[-GRID_YEARS:]
     head = "".join(f"<th>{y}</th>" for y in years)
     rows = []
     for key in keys:
         cells = "".join(
-            f'<td class="{tint(s)}">{"–" if np.isnan(s) else f"{s:.2f}"}</td>' for s in df.loc[key]
+            f'<td class="{tint(s)}">{"–" if np.isnan(s) else f"{s:.2f}"}</td>' for s in df.loc[key, years]
         )
         rows.append(f'<tr><td>{section_label(key)}</td>{cells}<td class="avg">{df.loc[key].mean():.2f}</td></tr>')
     return (f'<div class="table-frame"><table class="grid"><thead><tr><th>Section</th>{head}'
@@ -235,13 +243,13 @@ def report(df, ticker, company, cik):
     df = df.round(2)
     averages = df.mean(axis=1)  # the same numbers as the grid's "Average" column
     best, worst = averages.idxmax(), averages.idxmin()
-    changes = (df[last] - df[first]).dropna().round(2)
-    changes = changes[changes.abs() >= 0.045]
-    movers = changes.loc[changes.abs().sort_values(ascending=False).index].head(4)
+    # The 4 largest changes; anything under 0.05 counts as no real change and is shown in grey
+    changes = (df[last] - df[first]).dropna().round(2) if len(years) > 1 else pd.Series(dtype=float)
+    movers = changes.loc[changes.abs().sort_values(ascending=False, kind="stable").index].head(4)
 
     # The one finding, shown under the title
     sentence = f"The {last} report reads {tone_word(overall[last])} overall ({overall[last]:.2f} of 5)."
-    if len(movers):
+    if len(movers) and abs(movers.iloc[0]) >= 0.045:
         top = movers.index[0]
         sentence = esc(sentence) + (f" {esc(SECTIONS[top][1])} changed most since {first}: "
                                     f'<span class="nowrap">{df.loc[top, first]:.2f} → {df.loc[top, last]:.2f}</span>.')
@@ -276,7 +284,8 @@ def report(df, ticker, company, cik):
     if len(movers):
         rows = "".join(
             f'<li><div class="name">{section_label(k)}</div>'
-            f'<div class="change num"><span class="{"up" if c > 0 else "down"}">{signed(c)}</span>'
+            f'<div class="change num"><span class="{"up" if c >= 0.045 else "down" if c <= -0.045 else ""}">'
+            f'{signed(c)}</span>'
             f'<span class="from">{df.loc[k, first]:.2f} → {df.loc[k, last]:.2f}</span></div></li>'
             for k, c in movers.items()
         )
@@ -284,7 +293,7 @@ def report(df, ticker, company, cik):
     elif len(years) == 1:
         movers_html = '<div class="empty">One report in this range. Changes need at least two years.</div>'
     else:
-        movers_html = f'<div class="empty">No section moved by 0.05 or more between {first} and {last}.</div>'
+        movers_html = f'<div class="empty">No section was scored in both {first} and {last}.</div>'
     out.append(f"""
     <div class="row-2">
       <div class="card"><div class="card-head"><h2>Overall tone by year</h2>
@@ -301,11 +310,16 @@ def report(df, ticker, company, cik):
     if quiet:
         quiet_html = (f'<details class="neutral"><summary>{len(quiet)} more sections stay neutral '
                       f"(2.5–3.5) every year</summary>{grid_table(df, quiet)}</details>")
+    grid_note = ""
+    if len(years) > GRID_YEARS:
+        grid_note = (f'<p class="grid-note">Showing the latest {GRID_YEARS} of {len(years)} years. '
+                     f"Averages cover every year, {first}–{last}.</p>")
     out.append(f"""
     <div class="card"><div class="card-head"><h2>Tone by section and year</h2>
       <div class="legend"><span><i class="n2"></i>1–1.5</span><span><i class="n1"></i>1.5–2.5</span>
         <span><i></i>neutral</span><span><i class="p1"></i>3.5–4.5</span><span><i class="p2"></i>4.5–5</span></div>
       </div>
+      {grid_note}
       {grid_table(df, moving) if moving else '<div class="empty">Every section stays neutral (2.5–3.5) in every year.</div>'}
       {quiet_html}
     </div>""")
@@ -355,18 +369,24 @@ def year_param():
         return 2019
 
 
+def clean_ticker(text):
+    """'brk.b ' -> 'BRK-B' (the SEC writes share classes with a dash)."""
+    return text.strip().upper().replace(".", "-").replace(" ", "")
+
+
 default_year = year_param()
 
 top = st.columns([1, 1.3], vertical_alignment="bottom")
 show(top[0], BRAND)
 with top[1].form("search", border=False):
     c1, c2, c3 = st.columns([1.2, 1, 0.8], vertical_alignment="bottom")
-    ticker_in = c1.text_input("Stock ticker", params.get("ticker", "GOOG"), max_chars=10)
-    year_in = c2.number_input("From year", 2001, this_year, default_year)
+    ticker_in = c1.text_input("Stock ticker", clean_ticker(params.get("ticker", "GOOG"))[:10], max_chars=10)
+    year_in = c2.number_input("Filed from", 2001, this_year, default_year,
+                              help="Reports filed in this year or later. A report filed in 2019 covers 2018.")
     if c3.form_submit_button("Analyze", type="primary", use_container_width=True):
-        st.query_params.update({"ticker": ticker_in.strip().upper(), "from": str(int(year_in))})
+        st.query_params.update({"ticker": clean_ticker(ticker_in), "from": str(int(year_in))})
 
-ticker = st.query_params.get("ticker", "").strip().upper()
+ticker = clean_ticker(st.query_params.get("ticker", ""))
 start_year = year_param()
 screen = st.empty()
 
@@ -380,10 +400,10 @@ if not ticker:
     st.stop()
 
 try:
-    show(screen, page_title(ticker, "Downloading 10-K filings from SEC EDGAR. The first run for a company "
-                                   "takes a minute or two."))
+    show(screen, page_title(ticker, "Downloading 10-K filings from SEC EDGAR. This takes a few seconds per year "
+                                   "of reports, so long ranges take a few minutes."))
     filings = get_filings(ticker, start_year)
-except ValueError:
+except UnknownTicker:
     show(screen, page_title(ticker, f"{esc(ticker)} isn't in the SEC's list of company tickers. "
                                    "Check the symbol, for example GOOG, MSFT or JPM.", error=True))
     st.stop()
@@ -393,7 +413,7 @@ except Exception:
     st.stop()
 
 if not filings:
-    show(screen, page_title(ticker, f"No 10-K filings for {esc(ticker)} from {start_year} on. "
+    show(screen, page_title(ticker, f"No 10-K filings for {esc(ticker)} filed from {start_year} on. "
                                    "Try an earlier start year.", error=True))
     st.stop()
 
@@ -401,6 +421,10 @@ company = filings[0].get("company", ticker)
 show(screen, page_title(company, f"Scoring {len(filings)} annual reports with FinBERT…"))
 tokenizer, model = load_finbert()
 scores = score_filings(ticker, start_year, filings, tokenizer, model)
+if scores.empty:
+    show(screen, page_title(company, "Couldn't read any sections from these filings. Try a later start year.",
+                            error=True))
+    st.stop()
 
 show(screen, report(scores, ticker, company, filings[0].get("cik", "–")))
 show(st, news_card(company) + METHOD)
