@@ -70,18 +70,6 @@ Every result has its own link you can share, for example http://localhost:8501/?
 export NEWSAPI_KEY=your_key        # Windows PowerShell: $env:NEWSAPI_KEY="your_key"
 ```
 
-## Deploy (Streamlit Community Cloud, free)
-
-1. Push this folder to a GitHub repository.
-2. Go to [share.streamlit.io](https://share.streamlit.io), click **Create app** and pick the repository.
-3. Set **Main file path** to `streamlit_app.py` and click **Deploy**.
-4. Optional: under **Advanced settings → Secrets**, add your NewsAPI key:
-   ```toml
-   NEWSAPI_KEY = "your_key"
-   ```
-
-The first start takes a few minutes while the packages and the FinBERT model download.
-
 ## Tools used
 
 - **[FinBERT](https://huggingface.co/yiyanghkust/finbert-tone)** – sentiment model for financial text
